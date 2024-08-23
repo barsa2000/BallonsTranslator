@@ -104,9 +104,14 @@ class LeftBar(Widget):
     imgTransChecked = Signal()
     configChecked = Signal()
     open_dir = Signal(str)
+    open_archive = Signal(str)
     open_json_proj = Signal(str)
     save_proj = Signal()
     save_config = Signal()
+    run_imgtrans = Signal()
+    export_cbz = Signal()
+    export_doc = Signal()
+    import_doc = Signal()
     def __init__(self, mainwindow, *args, **kwargs) -> None:
         super().__init__(mainwindow, *args, **kwargs)
         self.mainwindow: QMainWindow = mainwindow
@@ -131,6 +136,10 @@ class LeftBar(Widget):
         actionOpenFolder = QAction(self.tr("Open Folder ..."), self)
         actionOpenFolder.triggered.connect(self.onOpenFolder)
         actionOpenFolder.setShortcut(QKeySequence.Open)
+        
+        actionOpenArchive = QAction(self.tr("Open Archive ..."), self)
+        actionOpenArchive.triggered.connect(self.onOpenArchive)
+        # actionOpenArchive.setShortcut(QKeySequence.Open)
 
         actionOpenProj = QAction(self.tr("Open Project ... *.json"), self)
         actionOpenProj.triggered.connect(self.onOpenProj)
@@ -138,6 +147,9 @@ class LeftBar(Widget):
         actionSaveProj = QAction(self.tr("Save Project"), self)
         self.save_proj = actionSaveProj.triggered
         actionSaveProj.setShortcut(QKeySequence.StandardKey.Save)
+        
+        actionExportAsCbz = QAction(self.tr("Export as cbz"), self)
+        actionExportAsCbz.triggered.connect(self.export_cbz)
 
         actionExportAsDoc = QAction(self.tr("Export as Doc"), self)
         self.export_doc = actionExportAsDoc.triggered
@@ -160,11 +172,12 @@ class LeftBar(Widget):
         self.recentMenu = QMenu(self.tr("Open Recent"), self)
         
         openMenu = QMenu(self)
-        openMenu.addActions([actionOpenFolder, actionOpenProj])
+        openMenu.addActions([actionOpenArchive, actionOpenFolder, actionOpenProj])
         openMenu.addMenu(self.recentMenu)
         openMenu.addSeparator()
         openMenu.addActions([
             actionSaveProj,
+            actionExportAsCbz,
             actionExportAsDoc,
             actionImportFromDoc,
             actionExportSrcTxt,
@@ -281,10 +294,16 @@ class LeftBar(Widget):
         if osp.exists(folder_path):
             self.updateRecentProjList(folder_path)
             self.open_dir.emit(folder_path)
+            
+    def onOpenArchive(self):
+        dialog = QFileDialog()
+        archive_path = str(dialog.getOpenFileUrl(self.parent(), self.tr('Select Archive'), filter="Archive (*.cbz *.zip *.cbr *.cb7 *.cbt)")[0].toLocalFile())
+        if osp.exists(archive_path):
+            self.open_archive.emit(archive_path)
 
     def onOpenProj(self):
         dialog = QFileDialog()
-        json_path = str(dialog.getOpenFileUrl(self.parent(), self.tr('Import *.docx'), filter="*.json")[0].toLocalFile())
+        json_path = str(dialog.getOpenFileUrl(self.parent(), self.tr('Select Project File (JSON)'), filter="*.json")[0].toLocalFile())
         if osp.exists(json_path):
             self.open_json_proj.emit(json_path)
 

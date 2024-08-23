@@ -1,5 +1,8 @@
+import shutil
+import zipfile
 import numpy as np
 import os.path as osp
+import os
 import traceback
 
 from qtpy.QtCore import Qt, Signal, QUrl, QThread
@@ -89,6 +92,51 @@ class ImgTransProjFileIOThread(ThreadBase):
 
     def on_exec_failed(self):
         self.progress_bar.hide()
+
+
+class ExportCbzThread(ImgTransProjFileIOThread):
+
+    _thread_error_msg = 'Failed to export cbz'
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.progress_bar.setTaskName(self.tr('Export as cbz...'))
+
+    def exportAsCbz(self, proj: ProjImgTrans):
+        cbz_path = proj.base_export_name() + ".cbz"
+        if osp.exists(cbz_path):
+            msg = QMessageBox()
+            msg.setText(self.tr('Overwrite ') + cbz_path + '?')
+            msg.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+            ret = msg.exec_()
+            if ret == QMessageBox.StandardButton.No:
+                return
+        if self.job is None:
+            self.proj = proj
+            self.job = self._export_as_cbz
+            self.start()
+            self.progress_bar.updateTaskProgress(0)
+            self.progress_bar.show()
+
+    def _export_as_cbz(self):
+        if self.proj is None:
+            return
+        self.fin_counter = 0
+        self.num_pages = self.proj.num_pages
+        if self.num_pages > 0:
+            shutil.make_archive(self.proj.base_export_name(), "zip", self.proj.result_dir())
+            zippath = self.proj.base_export_name() + ".zip"
+            
+            if osp.exists(osp.join(self.proj.directory, "ComicInfo.xml")):
+                with zipfile.ZipFile(zippath, 'a') as zf:
+                    zf.write(osp.join(self.proj.directory, "ComicInfo.xml"), "ComicInfo.xml")
+                    
+            os.rename(zippath, self.proj.base_export_name() + ".cbz")
+        
+        self.proj = None
+        self.progress_bar.updateTaskProgress(100)
+        self.progress_bar.hide()
+        self.fin_io.emit()
 
 
 class ExportDocThread(ImgTransProjFileIOThread):

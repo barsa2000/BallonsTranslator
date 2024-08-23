@@ -4,6 +4,7 @@ from typing import List, Union
 from pathlib import Path
 import subprocess
 from functools import partial
+import shutil
 import time
 
 from tqdm import tqdm
@@ -27,7 +28,7 @@ from .textedit_area import SourceTextEdit, SelectTextMiniMenu, TransTextEdit
 from .drawingpanel import DrawingPanel
 from .scenetext_manager import SceneTextManager, TextPanel, PasteSrcItemsCommand
 from .mainwindowbars import TitleBar, LeftBar, BottomBar
-from .io_thread import ImgSaveThread, ImportDocThread, ExportDocThread
+from .io_thread import ExportCbzThread, ImgSaveThread, ImportDocThread, ExportDocThread
 from .custom_widget import Widget, ViewWidget
 from .global_search_widget import GlobalSearchWidget
 from .textedit_commands import GlobalRepalceAllCommand
@@ -110,6 +111,7 @@ class MainWindow(mainwindow_cls):
 
     def setupThread(self):
         self.imsave_thread = ImgSaveThread()
+        self.export_cbz_thread = ExportCbzThread()
         self.export_doc_thread = ExportDocThread()
         self.export_doc_thread.fin_io.connect(self.on_fin_export_doc)
         self.import_doc_thread = ImportDocThread(self)
@@ -133,8 +135,10 @@ class MainWindow(mainwindow_cls):
         self.leftBar.configChecked.connect(self.setupConfigUI)
         self.leftBar.globalSearchChecker.clicked.connect(self.on_set_gsearch_widget)
         self.leftBar.open_dir.connect(self.OpenProj)
+        self.leftBar.open_archive.connect(self.openArchiveProj)
         self.leftBar.open_json_proj.connect(self.openJsonProj)
         self.leftBar.save_proj.connect(self.save_proj)
+        self.leftBar.export_cbz.connect(self.on_export_cbz)
         self.leftBar.export_doc.connect(self.on_export_doc)
         self.leftBar.import_doc.connect(self.on_import_doc)
         self.leftBar.export_src_txt.connect(lambda : self.on_export_txt(dump_target='source'))
@@ -405,6 +409,47 @@ class MainWindow(mainwindow_cls):
         if isinstance(directory, str) and osp.exists(directory):
             self.leftBar.updateRecentProjList(directory)
             self.OpenProj(directory)
+            
+    def openArchiveProj(self, archive: str):
+        try:
+            self.opening_dir = True
+            p = osp.splitext(archive)
+            unpack_path = p[0]
+            ext = p[1]
+            
+            needunpack = True
+            if osp.exists(unpack_path):
+                msg = QMessageBox()
+                msg.setText(self.tr('Overwrite ') + unpack_path + '?')
+                msg.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+                ret = msg.exec_()
+                if ret == QMessageBox.StandardButton.No:
+                    needunpack = False
+            
+            if needunpack:
+                if ext in [".zip", ".cbz"]:
+                    shutil.unpack_archive(archive, unpack_path, "zip")
+                elif ext in [".cbt"]:
+                    shutil.unpack_archive(archive, unpack_path, "tar")
+                elif ext in [".cb7"]:
+                    # TODO: unpack 7zip
+                    shutil.unpack_archive(archive, unpack_path, "7z")
+                elif ext in [".cbr"]:
+                    # TODO: unpack rar
+                    shutil.unpack_archive(archive, unpack_path, "rar")
+                else:
+                    raise
+            
+            self.imgtrans_proj.load(unpack_path)
+            self.st_manager.clearSceneTextitems()
+            self.leftBar.updateRecentProjList(unpack_path)
+            self.titleBar.setTitleContent(osp.basename(unpack_path))
+            self.updatePageList()
+            self.opening_dir = False
+        except Exception as e:
+            self.opening_dir = False
+            create_error_dialog(e, self.tr('Failed to load archive ') + archive)
+            return
 
     def openJsonProj(self, json_path: str):
         try:
@@ -822,6 +867,9 @@ class MainWindow(mainwindow_cls):
 
         if not osp.exists(self.imgtrans_proj.result_dir()):
             os.makedirs(self.imgtrans_proj.result_dir())
+        
+        if not osp.exists(self.imgtrans_proj.exports_dir()):
+            os.makedirs(self.imgtrans_proj.exports_dir())
 
         if save_proj:
             self.imgtrans_proj.save()
@@ -1199,6 +1247,11 @@ class MainWindow(mainwindow_cls):
     def show_trans_text(self, show: bool):
         pcfg.show_trans_text = show
         self.textPanel.textEditList.setTransVisible(show)
+        
+    def on_export_cbz(self):
+        if self.canvas.text_change_unsaved():
+            self.st_manager.updateTextBlkList()
+        self.export_cbz_thread.exportAsCbz(self.imgtrans_proj)
 
     def on_export_doc(self):
         if self.canvas.text_change_unsaved():

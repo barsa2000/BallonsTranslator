@@ -135,6 +135,9 @@ class ProjImgTrans:
     def result_dir(self):
         return osp.join(self.directory, 'result')
 
+    def exports_dir(self) -> str:
+        return os.path.join(self.directory, "exports")
+
     def load_from_dict(self, proj_dict: dict):
         self.set_current_img(None)
         try:
@@ -405,6 +408,9 @@ class ProjImgTrans:
             return self.pages[self.current_img]
         else:
             return None
+        
+    def base_export_name(self) -> str:
+        return osp.join(self.exports_dir(), self.proj_name())
 
     def doc_path(self) -> str:
         return os.path.join(self.directory, self.proj_name() + ".docx")
