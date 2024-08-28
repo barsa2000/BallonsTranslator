@@ -1,5 +1,6 @@
 # stealt & modified from https://github.com/zyddnys/manga-image-translator/blob/main/manga_translator/translators/chatgpt.py
 
+import json
 import re
 import time
 from typing import List, Dict, Union
@@ -138,7 +139,8 @@ class GPTTranslator(BaseTranslator):
     @property
     def chat_system_template(self) -> str:
         to_lang = self.lang_map[self.lang_target]
-        return self.params['chat system template']['value'].format(to_lang=to_lang)
+        from_lang = self.lang_map[self.lang_source]
+        return self.params['chat system template']['value'].format(to_lang=to_lang, from_lang=from_lang)
     
     @property
     def chat_sample(self):
@@ -178,13 +180,14 @@ class GPTTranslator(BaseTranslator):
         if max_tokens is None:
             max_tokens = self.max_tokens
         # return_prompt = self.params['return prompt']
-        prompt_template = self.params['prompt template']['value'].format(to_lang=to_lang).rstrip()
+        prompt_template = self.params['prompt template']['value'].format(to_lang=to_lang, from_lang=from_lang).rstrip()
         prompt += prompt_template
 
         i_offset = 0
         num_src = 0
+        jj = {}
         for i, query in enumerate(queries):
-            prompt += f'\n<|{i+1-i_offset}|>{query}'
+            jj[i+1-i_offset] = query
             num_src += 1
             # If prompt is growing too large and theres still a lot of text left
             # split off the rest of the queries into new prompts.
@@ -193,14 +196,17 @@ class GPTTranslator(BaseTranslator):
             if max_tokens * 2 and len(''.join(queries[i+1:])) > max_tokens:
                 # if return_prompt:
                 #     prompt += '\n<|1|>'
+                prompt += json.dumps(jj, indent=2, ensure_ascii=False)
                 yield prompt.lstrip(), num_src
                 prompt = prompt_template
+                jj = {}
                 # Restart counting at 1
                 i_offset = i + 1
                 num_src = 0
 
         # if return_prompt:
         #     prompt += '\n<|1|>'
+        prompt += json.dumps(jj, indent=2, ensure_ascii=False)
         yield prompt.lstrip(), num_src
 
     def _format_prompt_log(self, to_lang: str, prompt: str) -> str:
@@ -237,15 +243,15 @@ class GPTTranslator(BaseTranslator):
             while True:
                 try:
                     response = self._request_translation(prompt, chat_sample)
-                    new_translations = re.split(r'<\|\d+\|>', response)[-num_src:]
+                    j = re.search(r"\{[\s\S]*\}", response)
+                    
+                    if not j:
+                        raise Exception("response does not contain a JSON")
+                    
+                    new_translations = json.loads(j.group(0)).values()
+                    
                     if len(new_translations) != num_src:
-                        # https://github.com/dmMaze/BallonsTranslator/issues/379
-                        _tr2 = re.sub(r'<\|\d+\|>', '', response)
-                        _tr2 = _tr2.split('\n')
-                        if len(_tr2) == num_src:
-                            new_translations = _tr2
-                        else:
-                            raise InvalidNumTranslations
+                        raise InvalidNumTranslations
                     break
                 except InvalidNumTranslations:
                     retry_attempt += 1
@@ -265,11 +271,7 @@ class GPTTranslator(BaseTranslator):
                     self.logger.error(f'Request traceback: ', traceback.format_exc())
                     time.sleep(self.retry_timeout)
                     # time.sleep(self.retry_timeout)
-            # if return_prompt:
-            #     new_translations = new_translations[:-1]
 
-            # if chat_sample is not None:
-            #     new_translations = new_translations[1:]
             translations.extend([t.strip() for t in new_translations])
 
         if self.token_count_last:
